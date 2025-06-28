@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:tflite_flutter_helper/tflite_flutter_helper.dart';
+import 'package:image/image.dart'
+    as img; // Import the image package with a prefix
 import '../services/tflite_service.dart';
 import '../widgets/image_picker_widget.dart';
 
@@ -29,8 +30,23 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _runModel(File imageFile) async {
     setState(() => _isLoading = true);
 
-    final image = TensorImage.fromFile(imageFile);
-    final output = await _tfliteService.runModelOnImage(image);
+    // 1. Read the image file as bytes
+    final bytes = await imageFile.readAsBytes();
+    // 2. Decode the image using the 'image' package
+    final originalImage = img.decodeImage(bytes);
+
+    if (originalImage == null) {
+      // Handle the case where image decoding fails
+      setState(() {
+        _result = 'Error: Could not decode image.';
+        _isLoading = false;
+      });
+      return; // Exit the function
+    }
+
+    // Now pass the img.Image object to your TFLiteService
+    final List<double> output =
+        await _tfliteService.runModelOnImage(originalImage);
 
     setState(() {
       _result = "Output: ${output.map((v) => v.toStringAsFixed(3)).join(', ')}";

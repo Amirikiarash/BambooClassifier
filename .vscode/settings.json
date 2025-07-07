@@ -1,3 +1,7 @@
 {
-  "dart.flutterSdkPath": "~/dev/flutter"
+    // ... other settings ...
+    "dart.flutterSdkPath": "D:\\paper\\flutter_windows_3.32.5-stable\\flutter", // <--- CHANGE THIS LINE
+    "dart.flutterSdkPaths": [],
+    "java.configuration.updateBuildConfiguration": "interactive" // You can leave this as an empty array
+    // ... other settings ...
 }

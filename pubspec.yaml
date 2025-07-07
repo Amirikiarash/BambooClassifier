@@ -9,19 +9,32 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
-  image_picker: ^1.1.2 # Recommended to use latest stable version
-  camera: ^0.9.4+5 # Keep if you plan to use direct camera access
-  tflite_flutter: ^0.10.1 # Make sure this is ^0.10.1
-  image: ^4.2.0 # Make sure this is ^4.2.0
+  image_picker: ^1.1.2
+  tflite_flutter: ^0.11.0
+  image: ^4.0.17
   path_provider: ^2.0.8
-  # NO tflite_flutter_helper HERE ANYMORE!
+  percent_indicator: ^4.2.3
+  google_fonts: ^6.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
+
   assets:
     - assets/model.tflite
-    - assets/labels.txt # Assuming you have a labels file
+    - assets/labels.txt
+
+  fonts:
+    - family: BambooFont
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/icon.png"

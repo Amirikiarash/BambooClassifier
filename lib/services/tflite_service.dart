@@ -1,136 +1,94 @@
-import 'dart:typed_data'; // Required for ByteData
+import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
-import 'package:image/image.dart'
-    as img; // Import the image package with a prefix
+import 'package:image/image.dart' as img;
+import 'dart:typed_data';
 
-// Define your model's expected input size and normalization parameters
-// YOU MUST ADJUST THESE VALUES BASED ON YOUR 'model.tflite'
-// If your model is 224x224 pixels RGB input, these defaults are common.
-const int kInputImageSize = 224;
-// Example for -1 to 1 normalization common in many pre-trained models
-// (pixel - mean) / std_dev
 const List<double> kNormMean = [127.5, 127.5, 127.5];
 const List<double> kNormStd = [127.5, 127.5, 127.5];
 
 class TFLiteService {
-  late Interpreter _interpreter;
+  late final Interpreter _interpreter;
   bool _isModelLoaded = false;
+  List<String> _labels = [];
 
-  /// Check if interpreter has been loaded
   bool get isInitialized => _isModelLoaded;
+  List<String> get labels => _labels;
 
-  /// Load the TensorFlow Lite model
+  /// Load TFLite model from assets
   Future<void> loadModel() async {
     try {
-      _interpreter = await Interpreter.fromAsset('assets/model.tflite');
+      final rawAsset = await rootBundle.load('assets/model.tflite');
+      final bytes = rawAsset.buffer.asUint8List();
+      _interpreter = Interpreter.fromBuffer(bytes);
       _isModelLoaded = true;
-      print('✅ Interpreter loaded successfully');
-      print('Model Input Shape: ${_interpreter.getInputTensor(0).shape}');
-      print('Model Input Type: ${_interpreter.getInputTensor(0).type}');
+      print('✅ Model loaded successfully with ${rawAsset.lengthInBytes} bytes');
     } catch (e) {
-      print('❌ Error while loading model: $e');
-      _isModelLoaded = false;
-      // Consider throwing the error or providing user feedback here
+      print('❌ Failed to load model: $e');
     }
   }
 
-  /// Run inference on an [img.Image]
-  Future<List<double>> runModelOnImage(img.Image inputImage) async {
+  /// Load label list from assets/labels.txt
+  Future<void> loadLabels() async {
+    try {
+      final labelData = await rootBundle.loadString('assets/labels.txt');
+      _labels = labelData.split('\n').map((e) => e.trim()).toList();
+      print('✅ Loaded ${_labels.length} labels');
+    } catch (e) {
+      print('❌ Failed to load labels: $e');
+    }
+  }
+
+  /// Run inference on given image
+  Future<List<double>> runModelOnImage(img.Image image) async {
     if (!_isModelLoaded) {
-      print('❌ Error: Interpreter not loaded. Call loadModel() first.');
-      return []; // Or throw an exception
+      throw Exception("Model is not loaded");
     }
 
-    // Get input tensor details from the loaded model
-    final inputTensor = _interpreter.getInputTensor(0);
-    final inputShape = inputTensor.shape;
-    final TensorType inputTfType =
-        inputTensor.type; // Use TensorType directly for comparison
+    final inputShape = _interpreter.getInputTensor(0).shape;
+    final outputShape = _interpreter.getOutputTensor(0).shape;
 
-    // Ensure the image matches the model's expected dimensions
-    final int modelHeight = inputShape[1];
-    final int modelWidth = inputShape[2];
-    final int modelChannels = inputShape[3];
+    final height = inputShape[1];
+    final width = inputShape[2];
 
-    // Resize the input image to the model's expected dimensions
-    final resizedImage =
-        img.copyResize(inputImage, width: modelWidth, height: modelHeight);
+    // Resize image to model's input size
+    final resized = img.copyResize(image, width: width, height: height);
 
-    // Create input buffer based on model's input type
-    Uint8List inputBytes;
-    if (inputTfType == TfLiteType.float32) {
-      // Corrected: Comparing TensorType with TfLiteType
-      final float32List =
-          Float32List(1 * modelHeight * modelWidth * modelChannels);
-      int pixelIndex = 0;
-      for (int y = 0; y < modelHeight; y++) {
-        for (int x = 0; x < modelWidth; x++) {
-          final pixel = resizedImage.getPixel(x, y);
+    // Normalize pixels and prepare input buffer
+    final input = Float32List(height * width * 3);
+    int pixelIndex = 0;
 
-          // These are now correctly called as static methods on 'img'
-          final r = img.getRed(pixel);
-          final g = img.getGreen(pixel);
-          final b = img.getBlue(pixel);
-
-          float32List[pixelIndex++] = (r - kNormMean[0]) / kNormStd[0];
-          float32List[pixelIndex++] = (g - kNormMean[1]) / kNormStd[1];
-          float32List[pixelIndex++] = (b - kNormMean[2]) / kNormStd[2];
-        }
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        final pixel = resized.getPixel(x, y);
+        input[pixelIndex++] = (pixel.r - kNormMean[0]) / kNormStd[0];
+        input[pixelIndex++] = (pixel.g - kNormMean[1]) / kNormStd[1];
+        input[pixelIndex++] = (pixel.b - kNormMean[2]) / kNormStd[2];
       }
-      inputBytes = float32List.buffer.asUint8List();
-    } else if (inputTfType == TfLiteType.uint8) {
-      // Corrected: Comparing TensorType with TfLiteType
-      final uint8List = Uint8List(1 * modelHeight * modelWidth * modelChannels);
-      int pixelIndex = 0;
-      for (int y = 0; y < modelHeight; y++) {
-        for (int x = 0; x < modelWidth; x++) {
-          final pixel = resizedImage.getPixel(x, y);
-          uint8List[pixelIndex++] = img.getRed(pixel);
-          uint8List[pixelIndex++] = img.getGreen(pixel);
-          uint8List[pixelIndex++] = img.getBlue(pixel);
-        }
-      }
-      inputBytes = uint8List;
-    } else {
-      print('❌ Unsupported input type: $inputTfType');
-      return [];
     }
 
-    final input = [inputBytes.buffer]; // Pass as ByteBuffer directly
+    final reshapedInput = input.reshape([1, height, width, 3]);
+    final output =
+        List.filled(outputShape[1], 0.0).reshape([1, outputShape[1]]);
 
-    // Get output tensor details
-    final outputTensor = _interpreter.getOutputTensor(0);
-    final outputShape = outputTensor.shape;
-    final TensorType outputTfType =
-        outputTensor.type; // Use TensorType directly
+    _interpreter.run(reshapedInput, output);
 
-    // Create output buffer
-    final outputBuffer = TensorBuffer.createFixedSize(
-        outputShape, outputTfType); // Corrected: Use outputTfType here
-
-    // Run inference
-    _interpreter.run(input, outputBuffer.buffer);
-
-    // Convert output buffer to a list of doubles
-    if (outputTfType == TfLiteType.float32) {
-      // Corrected: Comparing TensorType with TfLiteType
-      return outputBuffer.getDoubleList();
-    } else if (outputTfType == TfLiteType.uint8 ||
-        outputTfType == TfLiteType.int32) {
-      // Corrected
-      return outputBuffer.getIntList().map((e) => e.toDouble()).toList();
-    } else {
-      print('❌ Unsupported output type: $outputTfType');
-      return [];
-    }
+    return List<double>.from(output[0]);
   }
 
-  /// Close the interpreter when no longer needed
+  /// Get label by index (with null safety)
+  String getLabel(int index) {
+    if (index < 0 || index >= _labels.length) {
+      return 'Unknown';
+    }
+    return _labels[index];
+  }
+
+  /// Close interpreter and free resources
   void close() {
     if (_isModelLoaded) {
       _interpreter.close();
       _isModelLoaded = false;
-      print('Interpreter closed.');
+      print('🔒 Interpreter closed');
     }
   }
 }
